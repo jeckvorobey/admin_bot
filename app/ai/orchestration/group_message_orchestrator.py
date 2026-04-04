@@ -98,27 +98,17 @@ class GroupMessageOrchestrator:
 
         cutoff_time = current_time - timedelta(minutes=5)
 
-        # Ищем последний вопрос с меткой времени более 5 мин назад  # noqa: RUF003
         for entry in reversed(history):
-            try:
-                entry_time = datetime.fromisoformat(entry.created_at)
-                if entry_time < cutoff_time:
-                    minutes_ago = int((current_time - entry_time).total_seconds() / 60)
-                    logger.info(
-                        "Orchestrator found unanswered question: chat_id=%s "
-                        "minutes_ago=%s question='%s'",
-                        chat_id,
-                        minutes_ago,
-                        compact_log_text(entry.question, 200),
-                    )
-                    return minutes_ago
-            except ValueError:
-                logger.warning(
-                    "Orchestrator failed to parse created_at: chat_id=%s created_at=%s",
+            if entry.created_at < cutoff_time:
+                minutes_ago = int((current_time - entry.created_at).total_seconds() / 60)
+                logger.info(
+                    "Orchestrator found unanswered question: chat_id=%s "
+                    "minutes_ago=%s question='%s'",
                     chat_id,
-                    entry.created_at,
+                    minutes_ago,
+                    compact_log_text(entry.question, 200),
                 )
-                continue
+                return minutes_ago
 
         return None
 

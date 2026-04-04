@@ -76,33 +76,57 @@ async def group_message(message: Message) -> None:
 
     result = await group_service.process_message(incoming_message)
     if result.action == GroupMessageAction.DELETE_SPAM:
-        await message.delete()
-        await message.bot.ban_chat_member(
-            chat_id=message.chat.id,
-            user_id=message.from_user.id,
-        )
-        logger.info(
-            "Group message deleted and user banned: chat_id=%s user_id=%s message_id=%s",
-            message.chat.id,
-            message.from_user.id,
-            message.message_id,
-        )
+        try:
+            await message.delete()
+        except Exception:
+            logger.warning(
+                "Failed to delete spam message: chat_id=%s user_id=%s message_id=%s",
+                message.chat.id,
+                message.from_user.id,
+                message.message_id,
+            )
+        try:
+            await message.bot.ban_chat_member(
+                chat_id=message.chat.id,
+                user_id=message.from_user.id,
+            )
+            logger.info(
+                "Group message deleted and user banned: chat_id=%s user_id=%s message_id=%s",
+                message.chat.id,
+                message.from_user.id,
+                message.message_id,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to ban user: chat_id=%s user_id=%s message_id=%s",
+                message.chat.id,
+                message.from_user.id,
+                message.message_id,
+            )
         return
 
     if result.action == GroupMessageAction.MUTE_USER:
-        await message.bot.restrict_chat_member(
-            chat_id=message.chat.id,
-            user_id=message.from_user.id,
-            permissions=ChatPermissions(can_send_messages=False),
-            until_date=result.mute_until,
-        )
-        logger.info(
-            "Group user muted: chat_id=%s user_id=%s message_id=%s until_date=%s",
-            message.chat.id,
-            message.from_user.id,
-            message.message_id,
-            result.mute_until.isoformat() if result.mute_until else None,
-        )
+        try:
+            await message.bot.restrict_chat_member(
+                chat_id=message.chat.id,
+                user_id=message.from_user.id,
+                permissions=ChatPermissions(can_send_messages=False),
+                until_date=result.mute_until,
+            )
+            logger.info(
+                "Group user muted: chat_id=%s user_id=%s message_id=%s until_date=%s",
+                message.chat.id,
+                message.from_user.id,
+                message.message_id,
+                result.mute_until.isoformat() if result.mute_until else None,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to mute user: chat_id=%s user_id=%s message_id=%s",
+                message.chat.id,
+                message.from_user.id,
+                message.message_id,
+            )
 
     if result.reply_text:
         await message.reply(result.reply_text)

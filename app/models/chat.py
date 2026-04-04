@@ -1,6 +1,7 @@
 """Модели chat log и spam log."""
 
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.models.base import BaseEntity
 
@@ -13,7 +14,7 @@ class ChatLogEntry(BaseEntity):
     user_id: int
     question: str
     answer: str
-    created_at: str
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -24,4 +25,4 @@ class SpamLogEntry(BaseEntity):
     user_id: int
     text: str
     reason: str
-    created_at: str
+    created_at: datetime

@@ -14,4 +14,6 @@ BOT_BEHAVIOR_PATH = Path(__file__).resolve().parent / "words" / "bot_behavior.md
 
 def load_bot_behavior() -> str:
     """Загружает правила поведения бота из файла."""
+    if not BOT_BEHAVIOR_PATH.exists():
+        raise FileNotFoundError(f"Файл правил поведения не найден: {BOT_BEHAVIOR_PATH}")
     return BOT_BEHAVIOR_PATH.read_text(encoding="utf-8")

@@ -42,15 +42,15 @@ class GroupService:
         self._chat_member_repository = chat_member_repository or ChatMemberRepository()
         self._message_orchestrator = message_orchestrator or GroupMessageOrchestrator()
         self._reply_delay_seconds = reply_delay_seconds
-        spam_log_repository = SpamLogRepository()
+        self._spam_log_repository = SpamLogRepository()
         self._abuse_moderation_service = abuse_moderation_service or AbuseModerationService(
             chat_member_repository=self._chat_member_repository,
-            spam_log_repository=spam_log_repository,
+            spam_log_repository=self._spam_log_repository,
         )
         self._spam_service = spam_service or SpamService(
             chat_log_repository=self._chat_log_repository,
             chat_member_repository=self._chat_member_repository,
-            spam_log_repository=spam_log_repository,
+            spam_log_repository=self._spam_log_repository,
         )
 
     async def process_message(self, message: IncomingMessage) -> GroupMessageResult:

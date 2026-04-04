@@ -67,7 +67,7 @@ class ChatLogRepository(BaseRepository):
                 user_id=row["user_id"],
                 question=row["question"],
                 answer=row["answer"],
-                created_at=row["created_at"],
+                created_at=datetime.fromisoformat(row["created_at"]),
             )
             for row in reversed(rows)
         ]

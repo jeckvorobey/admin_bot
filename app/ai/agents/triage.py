@@ -46,7 +46,16 @@ class TriageAgent:
             compact_log_text(prompt),
         )
 
-        verdict = (await self._gemini_client.generate_text(prompt)).strip()
+        verdict = ""
+        try:
+            verdict = (await self._gemini_client.generate_text(prompt)).strip()
+        except Exception:
+            logger.exception(
+                "TriageAgent generate_text failed: chat_id=%s user_id=%s message_id=%s",
+                message.chat_id,
+                message.user_id,
+                message.message_id,
+            )
         if not verdict:
             decision = self._fallback_decision(
                 message,

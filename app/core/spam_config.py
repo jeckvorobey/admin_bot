@@ -16,6 +16,8 @@ SPAM_STOP_WORDS_PATH = Path(__file__).resolve().parent / "words" / "spam_stop_wo
 
 def load_spam_stop_words() -> list[str]:
     """Загружает стоп-слова антиспама из файла."""
+    if not SPAM_STOP_WORDS_PATH.exists():
+        raise FileNotFoundError(f"Файл стоп-слов спама не найден: {SPAM_STOP_WORDS_PATH}")
     return [
         line.strip().casefold()
         for line in SPAM_STOP_WORDS_PATH.read_text(encoding="utf-8").splitlines()
