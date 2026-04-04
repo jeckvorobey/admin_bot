@@ -1,0 +1,41 @@
+[project]
+name = "admin-bot"
+version = "0.1.0"
+description = "Telegram bot admin for group moderation, FAQ answers, and Gemini integration"
+requires-python = ">=3.13"
+dependencies = [
+    "aiogram>=3.24.0",
+    "aiohttp-socks>=0.10.1",
+    "fastapi>=0.128.0",
+    "google-genai>=1.0.0",
+    "pydantic-settings>=2.12.0",
+    "python-dotenv>=1.1.0",
+    "uvicorn>=0.40.0",
+    "uvloop>=0.22.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=1.3.0",
+    "pytest-cov>=7.0.0",
+    "ruff>=0.14.0",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+extend-exclude = [".codex", ".venv", ".pytest_cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]
