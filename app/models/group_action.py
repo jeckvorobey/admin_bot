@@ -15,6 +15,7 @@ class GroupMessageAction(StrEnum):
     DELETE_SPAM = "delete_spam"
     WARN_USER = "warn_user"
     MUTE_USER = "mute_user"
+    PENDING_REPLY = "pending_reply"
 
 
 @dataclass(frozen=True)

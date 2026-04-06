@@ -62,7 +62,7 @@ class FakeMessage:
 
     def __init__(self) -> None:
         self.chat = SimpleNamespace(id=100, type="supergroup")
-        self.from_user = SimpleNamespace(id=200)
+        self.from_user = SimpleNamespace(id=200, language_code="ru")
         self.text = "free USDT"
         self.message_id = 10
         self.entities = []

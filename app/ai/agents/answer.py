@@ -27,8 +27,8 @@ class AnswerAgent:
         self._web_search_client = web_search_client or GeminiClient(
             model=ANSWER_MODEL,
             system_instruction=load_prompt("answer.md"),
-            temperature=0.7,
-            max_output_tokens=500,
+            temperature=1,
+            max_output_tokens=1024,
             use_google_search=True,
         )
 
@@ -39,6 +39,7 @@ class AnswerAgent:
         *,
         faq: FAQ | None = None,
         partner: Partner | None = None,
+        user_language: str = "ru",
     ) -> str:
         """Возвращает локальный FAQ ответ или web-search ответ с partner рекомендацией."""
         if self._should_build_exchange_answer(question, faq=faq, partner=partner):
@@ -47,6 +48,7 @@ class AnswerAgent:
                 history,
                 faq=faq,
                 partner=partner,
+                user_language=user_language,
             )
             if exchange_answer:
                 logger.info(
@@ -58,7 +60,9 @@ class AnswerAgent:
 
         base_answer = self._build_local_answer(faq)
         if not base_answer:
-            prompt = self._build_prompt(question, history, partner=partner)
+            prompt = self._build_prompt(
+                question, history, partner=partner, user_language=user_language
+            )
             logger.info(
                 "AnswerAgent requesting Gemini fallback: history_size=%s "
                 "has_partner=%s question='%s' prompt='%s'",
@@ -99,6 +103,7 @@ class AnswerAgent:
         *,
         faq: FAQ | None,
         partner: Partner | None,
+        user_language: str = "ru",
     ) -> str:
         """Генерирует человекоподобный exchange-ответ через Gemini или локальный fallback."""
         prompt = self._build_exchange_prompt(
@@ -106,11 +111,13 @@ class AnswerAgent:
             history,
             faq=faq,
             partner=partner,
+            user_language=user_language,
         )
         logger.info(
             "AnswerAgent requesting Gemini exchange rewrite: history_size=%s "
-            "question='%s' prompt='%s'",
+            "user_language=%s question='%s' prompt='%s'",
             len(history),
+            user_language,
             compact_log_text(question, 500),
             compact_log_text(prompt),
         )
@@ -126,7 +133,9 @@ class AnswerAgent:
             "AnswerAgent Gemini exchange rewrite empty, using local fallback: question='%s'",
             compact_log_text(question, 500),
         )
-        return self._build_local_exchange_answer(question, faq=faq, partner=partner)
+        return self._build_local_exchange_answer(
+            question, faq=faq, partner=partner, user_language=user_language
+        )
 
     @staticmethod
     def _build_local_answer(faq: FAQ | None) -> str:
@@ -159,10 +168,11 @@ class AnswerAgent:
         *,
         faq: FAQ | None,
         partner: Partner | None,
+        user_language: str = "ru",
     ) -> str:
         """Собирает prompt для динамического exchange-ответа."""
         history_block = "\n".join(
-            f"Пользователь: {entry.question}\nБот: {entry.answer}".strip()
+            f"User: {entry.question}\nBot: {entry.answer}".strip()
             for entry in history[-10:]
             if entry.question.strip() or entry.answer.strip()
         ).strip()
@@ -171,42 +181,43 @@ class AnswerAgent:
         if faq is not None:
             faq_block = "\n".join(
                 [
-                    "Локальная FAQ-карточка AntEx:",
+                    "Local AntEx FAQ card:",
                     faq.answer.strip(),
-                    f"Ссылка на отзывы: {faq.link}".strip(),
+                    f"Reviews link: {faq.link}".strip(),
                 ]
             ).strip()
         partner_block = ""
         if partner is not None:
             partner_block = "\n".join(
                 [
-                    "Локальная partner-карточка AntEx:",
-                    f"Название: {partner.name}",
-                    f"Описание: {partner.description}",
-                    f"Контакт: {partner.link}",
+                    "Local AntEx partner card:",
+                    f"Name: {partner.name}",
+                    f"Description: {partner.description}",
+                    f"Contact: {partner.link}",
                 ]
             ).strip()
 
+        lang_hint = f"user language hint: {user_language}"
         parts = [
-            "Собери очень живой, дружелюбный ответ как участник Telegram-чата.",
-            "Пиши 2-4 естественных предложения, без канцелярита и без markdown-таблиц.",
-            "Если вопрос про Вьетнам, Таиланд или Грузию, явно назови страну.",
-            "Дай примерный ориентир по местному курсу через Google Search grounding и "
-            "мягко уточни, что точный курс лучше проверить в момент обмена.",
-            "Обязательно скажи, что AntEx помогает не только с обменом валют/крипты, "
-            "но и с оплатой Booking и аренды квартиры.",
-            "Контакт AntEx и ссылку на отзывы бери только из локальных карточек ниже, "
-            "не подменяй их другими ссылками.",
+            f"Respond in the same language as the user's question ({lang_hint}).",
+            "Write a natural, friendly reply as a Telegram group member.",
+            "2-4 sentences, no formal language, no markdown tables.",
+            "If the question is about Vietnam, Thailand, or Georgia, mention the country.",
+            "Give an approximate exchange rate from Google Search grounding and note "
+            "the exact rate should be confirmed before exchange.",
+            "Mention that AntEx also helps with Booking payments and apartment rental.",
+            "Use AntEx contact and reviews link ONLY from local cards below, "
+            "do not substitute other links.",
         ]
         if country is not None:
-            parts.append(f"Страна из вопроса: {country.name}.")
+            parts.append(f"Country from the question: {country.name}.")
         if history_block:
-            parts.extend(["", "История чата:", history_block])
+            parts.extend(["", "Chat history:", history_block])
         if faq_block:
             parts.extend(["", faq_block])
         if partner_block:
             parts.extend(["", partner_block])
-        parts.extend(["", f"Новый вопрос пользователя: {question.strip()}"])
+        parts.extend(["", f"User's question: {question.strip()}"])
         return "\n".join(parts).strip()
 
     @staticmethod
@@ -215,6 +226,7 @@ class AnswerAgent:
         *,
         faq: FAQ | None,
         partner: Partner | None,
+        user_language: str = "ru",
     ) -> str:
         """Собирает локальный человекоподобный exchange-ответ без Gemini."""
         country = detect_exchange_country(question)
@@ -256,31 +268,35 @@ class AnswerAgent:
         history: list[ChatLogEntry],
         *,
         partner: Partner | None,
+        user_language: str = "ru",
     ) -> str:
         """Собирает prompt с историей и подсказкой по партнёру, если trigger найден."""
         history_block = "\n".join(
-            f"Пользователь: {entry.question}\nБот: {entry.answer}".strip()
+            f"User: {entry.question}\nBot: {entry.answer}".strip()
             for entry in history[-10:]
             if entry.question.strip() or entry.answer.strip()
         ).strip()
         partner_block = ""
         if partner is not None:
             partner_block = (
-                "Локальная партнёрская рекомендация:\n"
+                "Local partner recommendation:\n"
                 f"{partner.description} {partner.name}: {partner.link}"
             )
 
-        parts = []
+        lang_hint = f"user language hint: {user_language}"
+        parts = [
+            f"Respond in the same language as the user's question ({lang_hint}).",
+        ]
         if history_block:
-            parts.extend(["История чата:", history_block, ""])
+            parts.extend(["", "Chat history:", history_block, ""])
         if partner_block:
             parts.extend([partner_block, ""])
         parts.extend(
             [
-                "Локального FAQ ответа нет.",
-                "Найди актуальный ответ через интернет-поиск, "
-                "если вопрос требует свежей информации.",
-                f"Новый вопрос пользователя: {question.strip()}",
+                "No local FAQ answer found.",
+                "Use web search to find an up-to-date answer if the question "
+                "requires fresh information.",
+                f"User's question: {question.strip()}",
             ]
         )
         return "\n".join(parts).strip()

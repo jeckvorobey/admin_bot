@@ -143,8 +143,8 @@ async def test_answer_agent_builds_human_exchange_answer_via_gemini() -> None:
     assert "Booking" in answer
     assert "https://t.me/AntEx_support" in answer
     assert len(client.prompts) == 1
-    assert "Собери очень живой, дружелюбный ответ" in client.prompts[0]
-    assert "Вьетнам" in client.prompts[0]
+    assert "Write a natural, friendly reply" in client.prompts[0]
+    assert "Vietnam" in client.prompts[0]
 
 
 @pytest.mark.asyncio
@@ -177,4 +177,4 @@ async def test_answer_agent_uses_web_search_fallback_when_local_faq_missing() ->
 
     assert answer == "Свежий ответ из поиска"
     assert len(client.prompts) == 1
-    assert "Локального FAQ ответа нет." in client.prompts[0]
+    assert "No local FAQ answer found." in client.prompts[0]

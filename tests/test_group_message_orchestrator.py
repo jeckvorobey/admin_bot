@@ -19,7 +19,7 @@ class FakeAnswerAgent(AnswerAgent):
     def __init__(self) -> None:
         pass
 
-    async def build_answer(self, question, history, *, faq=None, partner=None):
+    async def build_answer(self, question, history, *, faq=None, partner=None, user_language="ru"):
         if faq is not None:
             answer = f"{faq.answer}\n{faq.link}".strip()
         else:

@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
-from aiogram import F, Router
+from aiogram import Bot, F, Router
 from aiogram.filters import CommandStart
 from aiogram.types import ChatPermissions, Message, MessageEntity
 
 from app.core.config import settings
+from app.core.telegram_config import PENDING_REPLY_DELAY_SECONDS
 from app.models.group_action import GroupMessageAction
 from app.models.incoming_message import IncomingMessage
 from app.telegram.services.group_service import GroupService
@@ -18,6 +20,7 @@ from app.utils.logging import compact_log_text
 router = Router(name="group")
 group_service = GroupService()
 logger = logging.getLogger(__name__)
+_background_tasks: set[asyncio.Task] = set()
 
 _QUESTION_PATTERN = re.compile(
     r"(^|\s)(где|как|когда|сколько|можно|почему|зачем|что|кто|куда|какой|какая|какие)\b",
@@ -61,7 +64,7 @@ async def group_message(message: Message) -> None:
     logger.info(
         "Group message normalized: chat_id=%s user_id=%s message_id=%s "
         "reply_to_bot=%s mentions_bot=%s has_question=%s has_links=%s "
-        "mention_count=%s forward_chat_id=%s text='%s'",
+        "mention_count=%s mention_targets=%s forward_chat_id=%s lang=%s text='%s'",
         incoming_message.chat_id,
         incoming_message.user_id,
         incoming_message.message_id,
@@ -70,7 +73,9 @@ async def group_message(message: Message) -> None:
         incoming_message.has_question,
         incoming_message.has_links,
         incoming_message.mention_count,
+        incoming_message.mention_targets,
         incoming_message.forward_chat_id,
+        incoming_message.user_language,
         compact_log_text(incoming_message.text, 500),
     )
 
@@ -128,6 +133,23 @@ async def group_message(message: Message) -> None:
                 message.message_id,
             )
 
+    if result.action == GroupMessageAction.PENDING_REPLY:
+        task = asyncio.create_task(
+            _delayed_answer_check(
+                bot=message.bot,
+                chat_id=message.chat.id,
+            )
+        )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
+        logger.info(
+            "Group message scheduled for delayed reply: chat_id=%s user_id=%s message_id=%s",
+            message.chat.id,
+            message.from_user.id,
+            message.message_id,
+        )
+        return
+
     if result.reply_text:
         await message.reply(result.reply_text)
         logger.info(
@@ -176,7 +198,28 @@ def _normalize_message(message: Message) -> IncomingMessage | None:
         ),
         forward_chat_id=_get_forward_chat_id(message),
         reply_to_user_id=_get_reply_to_user_id(message),
+        mention_targets=_extract_mention_targets(text, entities, bot_username),
+        user_language=message.from_user.language_code or "ru",
     )
+
+
+def _extract_mention_targets(
+    text: str,
+    entities: list[MessageEntity],
+    bot_username: str,
+) -> tuple[str, ...]:
+    """Возвращает список username'ов упомянутых людей, кроме бота."""
+    targets: list[str] = []
+    for entity in entities:
+        if entity.type == "mention":
+            username = text[entity.offset : entity.offset + entity.length].lstrip("@").casefold()
+            if username and username != bot_username:
+                targets.append(username)
+        elif entity.type == "text_mention" and entity.user is not None:
+            username = (entity.user.username or "").casefold()
+            if username and username != bot_username:
+                targets.append(username)
+    return tuple(targets)
 
 
 def _is_question(text: str) -> bool:
@@ -230,3 +273,30 @@ def _get_reply_to_user_id(message: Message) -> int | None:
     if message.reply_to_message is None or message.reply_to_message.from_user is None:
         return None
     return message.reply_to_message.from_user.id
+
+
+async def _delayed_answer_check(bot: Bot, chat_id: int) -> None:
+    """Ждёт PENDING_REPLY_DELAY_SECONDS, затем отправляет ответы на ожидающие вопросы.
+
+    Запускается как asyncio.create_task — не блокирует основной handler.
+    """
+    await asyncio.sleep(PENDING_REPLY_DELAY_SECONDS)
+    try:
+        replies = await group_service.build_and_send_pending(chat_id)
+        for reply_to_message_id, answer in replies:
+            await bot.send_message(
+                chat_id=chat_id,
+                text=answer,
+                reply_to_message_id=reply_to_message_id,
+            )
+            logger.info(
+                "Delayed reply sent: chat_id=%s reply_to_message_id=%s answer='%s'",
+                chat_id,
+                reply_to_message_id,
+                compact_log_text(answer, 700),
+            )
+    except Exception:
+        logger.exception(
+            "Delayed answer check failed: chat_id=%s",
+            chat_id,
+        )

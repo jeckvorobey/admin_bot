@@ -28,7 +28,7 @@ class FakeMessageOrchestrator:
             return TriageDecision(action="reply", reason="Есть вопрос по локальной базе знаний")
         return TriageDecision(action="ignore", reason="Ответ не нужен")
 
-    async def build_answer(self, text, history):
+    async def build_answer(self, text, history, *, user_language="ru"):
         return f"Ответ: {text}"
 
 
@@ -44,7 +44,6 @@ def group_service(tmp_path, monkeypatch) -> GroupService:
         chat_log_repository=chat_log,
         chat_member_repository=chat_member,
         message_orchestrator=FakeMessageOrchestrator(),
-        reply_delay_seconds=(0, 0),
         abuse_moderation_service=AbuseModerationService(
             chat_member_repository=chat_member,
             spam_log_repository=spam_log,
@@ -62,7 +61,7 @@ def group_service(tmp_path, monkeypatch) -> GroupService:
 
 @pytest.mark.asyncio
 async def test_reply_on_question_with_trigger(group_service: GroupService) -> None:
-    """Если есть явный вопрос и trigger, бот должен ответить."""
+    """Если есть явный вопрос и trigger, бот должен запланировать отложенный ответ."""
     result = await group_service.process_message(
         IncomingMessage.build(
             chat_id=1,
@@ -73,8 +72,7 @@ async def test_reply_on_question_with_trigger(group_service: GroupService) -> No
         )
     )
 
-    assert result.action == GroupMessageAction.REPLY
-    assert result.reply_text == "Ответ: Где обменять USDT?"
+    assert result.action == GroupMessageAction.PENDING_REPLY
 
 
 @pytest.mark.asyncio

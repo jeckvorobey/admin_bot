@@ -2,19 +2,14 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import random
 
 from app.ai.orchestration import GroupMessageOrchestrator
-from app.core.telegram_config import (
-    REPLY_DELAY_MAX_SECONDS,
-    REPLY_DELAY_MIN_SECONDS,
-)
 from app.models.group_action import GroupMessageAction, GroupMessageResult
 from app.models.incoming_message import IncomingMessage
 from app.repositories.chat_log import ChatLogRepository
 from app.repositories.chat_member import ChatMemberRepository
+from app.repositories.pending_question import PendingQuestionRepository
 from app.repositories.spam_log import SpamLogRepository
 from app.services.abuse import AbuseModerationService
 from app.services.spam import SpamService
@@ -33,15 +28,14 @@ class GroupService:
         message_orchestrator: GroupMessageOrchestrator | None = None,
         abuse_moderation_service: AbuseModerationService | None = None,
         spam_service: SpamService | None = None,
-        reply_delay_seconds: tuple[float, float] = (
-            REPLY_DELAY_MIN_SECONDS,
-            REPLY_DELAY_MAX_SECONDS,
-        ),
+        pending_question_repository: PendingQuestionRepository | None = None,
     ) -> None:
         self._chat_log_repository = chat_log_repository or ChatLogRepository()
         self._chat_member_repository = chat_member_repository or ChatMemberRepository()
         self._message_orchestrator = message_orchestrator or GroupMessageOrchestrator()
-        self._reply_delay_seconds = reply_delay_seconds
+        self._pending_question_repository = (
+            pending_question_repository or PendingQuestionRepository()
+        )
         self._spam_log_repository = SpamLogRepository()
         self._abuse_moderation_service = abuse_moderation_service or AbuseModerationService(
             chat_member_repository=self._chat_member_repository,
@@ -62,6 +56,20 @@ class GroupService:
             message.message_id,
             compact_log_text(message.text, 500),
         )
+
+        # Любое живое сообщение от другого пользователя = кто-то ответил → снимаем pending
+        answered = self._pending_question_repository.mark_answered(
+            message.chat_id,
+            except_user_id=message.user_id,
+        )
+        if answered:
+            logger.info(
+                "GroupService pending questions answered by human activity: "
+                "chat_id=%s count=%s user_id=%s",
+                message.chat_id,
+                answered,
+                message.user_id,
+            )
 
         spam_reason = await self._spam_service.detect_spam(message)
         if spam_reason is not None:
@@ -146,31 +154,13 @@ class GroupService:
                 reason=decision.reason,
             )
 
-        reply_delay = random.uniform(*self._reply_delay_seconds)
-        logger.info(
-            "GroupService decision=reply waiting_before_answer_seconds=%.2f "
-            "chat_id=%s user_id=%s message_id=%s",
-            reply_delay,
-            message.chat_id,
-            message.user_id,
-            message.message_id,
-        )
-        await asyncio.sleep(reply_delay)
-
-        history = self._chat_log_repository.list_recent(message.chat_id, limit=20)
-        logger.info(
-            "GroupService history loaded: chat_id=%s entries=%s message_id=%s",
-            message.chat_id,
-            len(history),
-            message.message_id,
-        )
-
-        answer = await self._message_orchestrator.build_answer(message.text, history)
-        self._chat_log_repository.add_entry(
+        # Triage решил REPLY → сохраняем в pending, откладываем на 5 минут
+        self._pending_question_repository.add(
             chat_id=message.chat_id,
+            message_id=message.message_id,
             user_id=message.user_id,
             question=message.text,
-            answer=answer,
+            user_language=message.user_language,
             created_at=message.created_at,
         )
         self._chat_member_repository.touch_member(
@@ -179,15 +169,47 @@ class GroupService:
             message.created_at,
         )
         logger.info(
-            "GroupService decision=reply completed: chat_id=%s user_id=%s message_id=%s "
-            "answer='%s'",
+            "GroupService decision=pending_reply scheduled: chat_id=%s user_id=%s message_id=%s",
             message.chat_id,
             message.user_id,
             message.message_id,
-            compact_log_text(answer, 700),
         )
         return GroupMessageResult(
-            action=GroupMessageAction.REPLY,
-            reply_text=answer,
+            action=GroupMessageAction.PENDING_REPLY,
             reason=decision.reason,
         )
+
+    async def build_and_send_pending(self, chat_id: int) -> list[tuple[int, str]]:
+        """Генерирует ответы на все готовые pending-вопросы.
+
+        Возвращает список (message_id, answer) для отправки handler-слоем.
+        """
+        ready = self._pending_question_repository.find_ready(chat_id)
+        if not ready:
+            return []
+
+        results: list[tuple[int, str]] = []
+        history = self._chat_log_repository.list_recent(chat_id, limit=20)
+
+        for row in ready:
+            answer = await self._message_orchestrator.build_answer(
+                row["question"],
+                history,
+                user_language=row["user_language"],
+            )
+            self._chat_log_repository.add_entry(
+                chat_id=chat_id,
+                user_id=row["user_id"],
+                question=row["question"],
+                answer=answer,
+            )
+            self._pending_question_repository.mark_bot_answered(row["id"])
+            logger.info(
+                "GroupService pending reply sent: chat_id=%s message_id=%s answer='%s'",
+                chat_id,
+                row["message_id"],
+                compact_log_text(answer, 700),
+            )
+            results.append((row["message_id"], answer))
+
+        return results

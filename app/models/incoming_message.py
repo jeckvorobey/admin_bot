@@ -20,6 +20,8 @@ class IncomingMessage:
     mention_count: int = 0
     forward_chat_id: int | None = None
     reply_to_user_id: int | None = None
+    mention_targets: tuple[str, ...] = ()
+    user_language: str = "ru"
 
     @classmethod
     def build(
@@ -36,6 +38,8 @@ class IncomingMessage:
         mention_count: int = 0,
         forward_chat_id: int | None = None,
         reply_to_user_id: int | None = None,
+        mention_targets: tuple[str, ...] = (),
+        user_language: str = "ru",
     ) -> "IncomingMessage":
         """Создаёт входящее сообщение с текущим UTC timestamp."""
         return cls(
@@ -51,4 +55,6 @@ class IncomingMessage:
             mention_count=mention_count,
             forward_chat_id=forward_chat_id,
             reply_to_user_id=reply_to_user_id,
+            mention_targets=mention_targets,
+            user_language=user_language,
         )

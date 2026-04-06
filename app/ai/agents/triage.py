@@ -107,21 +107,28 @@ class TriageAgent:
     ) -> str:
         """Собирает краткий triage prompt с контекстом поведения."""
         behavior = load_bot_behavior()
+        mentions_other_users = bool(message.mention_targets)
         context_lines = [
-            "Сообщение для triage:",
+            "Message for triage:",
             message.text.strip(),
             "",
-            f"Есть вопрос: {'да' if message.has_question else 'нет'}",
-            f"Есть упоминание бота: {'да' if message.mentions_bot else 'нет'}",
-            f"Это reply на бота: {'да' if message.is_reply_to_bot else 'нет'}",
-            f"Есть локальный knowledge trigger: {'да' if has_local_knowledge else 'нет'}",
-            f"Есть ссылки: {'да' if message.has_links else 'нет'}",
-            f"Количество упоминаний: {message.mention_count}",
-            f"ID источника форварда: {message.forward_chat_id or 'нет'}",
+            f"Has question mark or question word: {'yes' if message.has_question else 'no'}",
+            f"Bot explicitly mentioned: {'yes' if message.mentions_bot else 'no'}",
+            f"Is reply to bot: {'yes' if message.is_reply_to_bot else 'no'}",
+            "Mentions other users (not bot): "
+            + (
+                "yes — " + ", ".join(f"@{u}" for u in message.mention_targets)
+                if mentions_other_users
+                else "no"
+            ),
+            f"Has local knowledge match: {'yes' if has_local_knowledge else 'no'}",
+            f"Has links: {'yes' if message.has_links else 'no'}",
+            f"Forward source chat id: {message.forward_chat_id or 'none'}",
+            f"User language: {message.user_language}",
         ]
         if unanswered_question_minutes is not None:
             context_lines.append(
-                f"Неотвеченный вопрос в чате: {unanswered_question_minutes} мин назад"
+                f"Unanswered question in chat: {unanswered_question_minutes} min ago"
             )
 
         return "\n".join(context_lines).strip() + "\n\n" + behavior.strip()
@@ -162,12 +169,13 @@ class TriageAgent:
         if unanswered_question_minutes is not None and unanswered_question_minutes >= 5:
             return TriageDecision(
                 action="reply",
-                reason=f"Неотвеченный вопрос {unanswered_question_minutes} мин назад",
+                reason=f"Unanswered question {unanswered_question_minutes} min ago",
             )
         if message.mentions_bot or message.is_reply_to_bot:
-            return TriageDecision(action="reply", reason="Есть обращение к боту")
-        if message.has_question:
-            if has_local_knowledge:
-                return TriageDecision(action="reply", reason="Есть вопрос по локальной базе знаний")
-            return TriageDecision(action="reply", reason="Есть вопрос без локального FAQ")
-        return TriageDecision(action="ignore", reason="Нет вопроса и обращения к боту")
+            return TriageDecision(action="reply", reason="Bot explicitly addressed")
+        # Вопрос, адресованный конкретному пользователю → не вмешиваться
+        if message.mention_targets:
+            return TriageDecision(action="ignore", reason="Question directed at specific user")
+        if message.has_question and has_local_knowledge:
+            return TriageDecision(action="reply", reason="Question matches local knowledge base")
+        return TriageDecision(action="ignore", reason="No bot mention, no local knowledge match")

@@ -54,12 +54,27 @@ def init_db() -> None:
                 muted_until_at TEXT,
                 PRIMARY KEY (chat_id, user_id)
             );
+
+            CREATE TABLE IF NOT EXISTS pending_questions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                message_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                question TEXT NOT NULL,
+                user_language TEXT NOT NULL DEFAULT 'ru',
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                answered_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_pending_questions_chat_status
+            ON pending_questions (chat_id, status, created_at);
             """
         )
         _ensure_chat_member_columns(connection)
     logger.info(
         "SQLite schema ready: tables=%s",
-        ["spam_log", "chat_log", "chat_members"],
+        ["spam_log", "chat_log", "chat_members", "pending_questions"],
     )
 
 

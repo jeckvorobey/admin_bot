@@ -1,4 +1,4 @@
 """Конфигурация Telegram runtime."""
 
-REPLY_DELAY_MIN_SECONDS = 5
-REPLY_DELAY_MAX_SECONDS = 15
+# Задержка перед отложенным ответом на вопрос (5 минут)
+PENDING_REPLY_DELAY_SECONDS = 300

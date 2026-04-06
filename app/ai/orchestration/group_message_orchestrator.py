@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
 
 from app.ai.agents import AnswerAgent, TriageAgent
 from app.ai.schemas import TriageDecision
@@ -12,6 +12,7 @@ from app.models.incoming_message import IncomingMessage
 from app.repositories.chat_log import ChatLogRepository
 from app.repositories.faq import FAQRepository
 from app.repositories.partner import PartnerRepository
+from app.repositories.pending_question import PendingQuestionRepository
 from app.utils.logging import compact_log_text
 
 logger = logging.getLogger(__name__)
@@ -27,12 +28,16 @@ class GroupMessageOrchestrator:
         triage_agent: TriageAgent | None = None,
         answer_agent: AnswerAgent | None = None,
         chat_log_repository: ChatLogRepository | None = None,
+        pending_question_repository: PendingQuestionRepository | None = None,
     ) -> None:
         self._faq_repository = faq_repository or FAQRepository()
         self._partner_repository = partner_repository or PartnerRepository()
         self._triage_agent = triage_agent or TriageAgent()
         self._answer_agent = answer_agent or AnswerAgent()
         self._chat_log_repository = chat_log_repository or ChatLogRepository()
+        self._pending_question_repository = (
+            pending_question_repository or PendingQuestionRepository()
+        )
 
     async def classify_message(self, message: IncomingMessage) -> TriageDecision:
         """Возвращает решение `spam/reply/ignore`."""
@@ -88,42 +93,49 @@ class GroupMessageOrchestrator:
         chat_id: int,
         current_time: datetime,
     ) -> int | None:
-        """Проверяет есть ли неотвеченный вопрос более 5 минут назад.
+        """Проверяет есть ли pending-вопрос более 5 минут без ответа.
 
+        Использует таблицу pending_questions — источник правды о неотвеченных вопросах.
         Возвращает количество минут прошедших с момента вопроса, или None.
         """
-        history = self._chat_log_repository.list_recent(chat_id, limit=20)
-        if not history:
+        ready = self._pending_question_repository.find_ready(chat_id, cutoff_minutes=5)
+        if not ready:
             return None
 
-        cutoff_time = current_time - timedelta(minutes=5)
+        oldest = ready[0]
+        created_at = datetime.fromisoformat(oldest["created_at"])
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=UTC)
 
-        for entry in reversed(history):
-            if entry.created_at < cutoff_time:
-                minutes_ago = int((current_time - entry.created_at).total_seconds() / 60)
-                logger.info(
-                    "Orchestrator found unanswered question: chat_id=%s "
-                    "minutes_ago=%s question='%s'",
-                    chat_id,
-                    minutes_ago,
-                    compact_log_text(entry.question, 200),
-                )
-                return minutes_ago
+        minutes_ago = int((current_time - created_at).total_seconds() / 60)
+        logger.info(
+            "Orchestrator found unanswered pending question: chat_id=%s "
+            "minutes_ago=%s question='%s'",
+            chat_id,
+            minutes_ago,
+            compact_log_text(oldest["question"], 200),
+        )
+        return minutes_ago
 
-        return None
-
-    async def build_answer(self, question: str, history: list[ChatLogEntry]) -> str:
+    async def build_answer(
+        self,
+        question: str,
+        history: list[ChatLogEntry],
+        *,
+        user_language: str = "ru",
+    ) -> str:
         """Генерирует ответ через FAQ/partners + web-search fallback."""
         faq = self._faq_repository.find_by_text(question)
         partner = self._partner_repository.find_by_text(question)
         logger.info(
             "Orchestrator answer request: history_size=%s has_faq=%s faq_id=%s "
-            "has_partner=%s partner_id=%s question='%s'",
+            "has_partner=%s partner_id=%s user_language=%s question='%s'",
             len(history),
             faq is not None,
             faq.id if faq else None,
             partner is not None,
             partner.id if partner else None,
+            user_language,
             compact_log_text(question, 500),
         )
 
@@ -132,6 +144,7 @@ class GroupMessageOrchestrator:
             history,
             faq=faq,
             partner=partner,
+            user_language=user_language,
         )
         logger.info(
             "Orchestrator answer response: question='%s' answer='%s'",
