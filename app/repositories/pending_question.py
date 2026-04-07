@@ -61,53 +61,57 @@ class PendingQuestionRepository(BaseRepository):
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def mark_answered(self, chat_id: int, *, except_user_id: int | None = None) -> int:
-        """Помечает pending-вопросы чата как answered (человек ответил).
-
-        Если указан except_user_id — пропускает вопросы, заданные этим пользователем
-        (автор вопроса не считается ответившим на свой же вопрос).
-        Возвращает количество обновлённых записей.
-        """
-        now = datetime.now(UTC).isoformat()
-        with self._connection() as conn:
-            if except_user_id is not None:
-                cursor = conn.execute(
-                    """
-                    UPDATE pending_questions
-                    SET status = 'answered', answered_at = ?
-                    WHERE chat_id = ? AND status = 'pending' AND user_id != ?
-                    """,
-                    (now, chat_id, except_user_id),
-                )
-            else:
-                cursor = conn.execute(
-                    """
-                    UPDATE pending_questions
-                    SET status = 'answered', answered_at = ?
-                    WHERE chat_id = ? AND status = 'pending'
-                    """,
-                    (now, chat_id),
-                )
-            updated = cursor.rowcount
-        if updated:
-            logger.info(
-                "PendingQuestion marked answered: chat_id=%s count=%s except_user_id=%s",
-                chat_id,
-                updated,
-                except_user_id,
-            )
-        return updated
-
     def mark_bot_answered(self, pending_id: int) -> None:
-        """Помечает конкретный вопрос как отвеченный ботом."""
+        """Помечает конкретный вопрос как отвеченный ботом.
+
+        Устанавливает bot_replied_at — по нему можно отличить ответ бота
+        от ответа живого участника (answered_by_message_id).
+        """
         now = datetime.now(UTC).isoformat()
         with self._connection() as conn:
             conn.execute(
                 """
                 UPDATE pending_questions
-                SET status = 'answered', answered_at = ?
+                SET status = 'answered', answered_at = ?, bot_replied_at = ?
                 WHERE id = ?
                 """,
-                (now, pending_id),
+                (now, now, pending_id),
             )
         logger.info("PendingQuestion bot-answered: id=%s", pending_id)
+
+    def get_open_by_message_id(self, chat_id: int, message_id: int) -> dict | None:
+        """Возвращает открытый вопрос по message_id, или None если не найден / уже закрыт."""
+        with self._connection() as conn:
+            row = conn.execute(
+                """
+                SELECT id, chat_id, message_id, user_id, question, user_language, created_at
+                FROM pending_questions
+                WHERE chat_id = ? AND message_id = ? AND status = 'pending'
+                """,
+                (chat_id, message_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def mark_answered_by_reply(
+        self,
+        question_id: int,
+        answered_by_message_id: int,
+        answered_at: datetime | None = None,
+    ) -> None:
+        """Закрывает конкретный вопрос: участник ответил reply-сообщением."""
+        ts = (answered_at or datetime.now(UTC)).isoformat()
+        with self._connection() as conn:
+            conn.execute(
+                """
+                UPDATE pending_questions
+                SET status = 'answered', answered_at = ?, answered_by_message_id = ?
+                WHERE id = ?
+                """,
+                (ts, answered_by_message_id, question_id),
+            )
+        logger.info(
+            "PendingQuestion answered by reply: id=%s answered_by_message_id=%s",
+            question_id,
+            answered_by_message_id,
+        )
+

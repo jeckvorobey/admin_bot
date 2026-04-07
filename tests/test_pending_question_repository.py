@@ -69,39 +69,6 @@ def test_find_ready_ignores_other_chat(repo: PendingQuestionRepository) -> None:
     assert ready == []
 
 
-def test_mark_answered_by_other_user(repo: PendingQuestionRepository) -> None:
-    """Другой пользователь может закрыть pending-вопрос."""
-    repo.add(
-        chat_id=1,
-        message_id=13,
-        user_id=100,
-        question="Вопрос от user_id=100",
-        created_at=datetime.now(UTC) - timedelta(minutes=6),
-    )
-
-    # user_id=200 отвечает — не тот, кто спросил
-    count = repo.mark_answered(chat_id=1, except_user_id=200)
-
-    assert count == 1
-    assert repo.find_ready(chat_id=1, cutoff_minutes=5) == []
-
-
-def test_mark_answered_skips_own_message(repo: PendingQuestionRepository) -> None:
-    """Автор вопроса не должен закрывать свой же pending-вопрос."""
-    repo.add(
-        chat_id=1,
-        message_id=14,
-        user_id=100,
-        question="Вопрос от user_id=100",
-        created_at=datetime.now(UTC) - timedelta(minutes=6),
-    )
-
-    # тот же user_id=100 пишет снова — не должно закрыть
-    count = repo.mark_answered(chat_id=1, except_user_id=100)
-
-    assert count == 0
-    assert len(repo.find_ready(chat_id=1, cutoff_minutes=5)) == 1
-
 
 def test_mark_bot_answered_removes_from_ready(repo: PendingQuestionRepository) -> None:
     """После mark_bot_answered вопрос не должен возвращаться в find_ready."""
@@ -142,3 +109,87 @@ def test_find_ready_returns_oldest_first(repo: PendingQuestionRepository) -> Non
     assert len(ready) == 2
     assert ready[0]["question"] == "Старый вопрос"
     assert ready[1]["question"] == "Менее старый вопрос"
+
+
+# ── Тесты новых методов per-question tracking ──────────────────────────────
+
+
+def test_get_open_by_message_id_returns_open_question(repo: PendingQuestionRepository) -> None:
+    """get_open_by_message_id должен найти pending-вопрос по message_id."""
+    repo.add(
+        chat_id=1,
+        message_id=20,
+        user_id=100,
+        question="Какой пляж в Дананге?",
+        created_at=datetime.now(UTC) - timedelta(minutes=2),
+    )
+
+    result = repo.get_open_by_message_id(chat_id=1, message_id=20)
+
+    assert result is not None
+    assert result["message_id"] == 20
+    assert result["question"] == "Какой пляж в Дананге?"
+
+
+def test_get_open_by_message_id_returns_none_for_answered(repo: PendingQuestionRepository) -> None:
+    """get_open_by_message_id не должен возвращать уже отвеченный вопрос."""
+    repo.add(
+        chat_id=1,
+        message_id=21,
+        user_id=100,
+        question="Закрытый вопрос",
+        created_at=datetime.now(UTC) - timedelta(minutes=6),
+    )
+    ready = repo.find_ready(chat_id=1, cutoff_minutes=5)
+    repo.mark_bot_answered(ready[0]["id"])
+
+    result = repo.get_open_by_message_id(chat_id=1, message_id=21)
+
+    assert result is None
+
+
+def test_get_open_by_message_id_returns_none_for_other_chat(
+    repo: PendingQuestionRepository,
+) -> None:
+    """get_open_by_message_id не должен возвращать вопрос из другого чата."""
+    repo.add(
+        chat_id=999,
+        message_id=22,
+        user_id=100,
+        question="Чужой вопрос",
+        created_at=datetime.now(UTC) - timedelta(minutes=2),
+    )
+
+    result = repo.get_open_by_message_id(chat_id=1, message_id=22)
+
+    assert result is None
+
+
+def test_mark_answered_by_reply_closes_specific_question(repo: PendingQuestionRepository) -> None:
+    """mark_answered_by_reply должен закрыть конкретный вопрос по question_id."""
+    repo.add(
+        chat_id=1,
+        message_id=23,
+        user_id=100,
+        question="Вопрос 1",
+        created_at=datetime.now(UTC) - timedelta(minutes=6),
+    )
+    repo.add(
+        chat_id=1,
+        message_id=24,
+        user_id=101,
+        question="Вопрос 2",
+        created_at=datetime.now(UTC) - timedelta(minutes=6),
+    )
+
+    # Закрываем только первый вопрос
+    q1 = repo.get_open_by_message_id(chat_id=1, message_id=23)
+    assert q1 is not None
+    repo.mark_answered_by_reply(question_id=q1["id"], answered_by_message_id=999)
+
+    # Первый закрыт
+    assert repo.get_open_by_message_id(chat_id=1, message_id=23) is None
+    # Второй открыт
+    assert repo.get_open_by_message_id(chat_id=1, message_id=24) is not None
+
+

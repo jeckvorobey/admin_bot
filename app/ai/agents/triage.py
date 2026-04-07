@@ -166,7 +166,12 @@ class TriageAgent:
         unanswered_question_minutes: int | None = None,
     ) -> TriageDecision:
         """Детерминированное решение без LLM-ответа."""
-        if unanswered_question_minutes is not None and unanswered_question_minutes >= 5:
+        if (
+            unanswered_question_minutes is not None
+            and unanswered_question_minutes >= 5
+            and message.has_question
+            and not message.mention_targets
+        ):
             return TriageDecision(
                 action="reply",
                 reason=f"Unanswered question {unanswered_question_minutes} min ago",

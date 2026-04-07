@@ -64,7 +64,8 @@ async def group_message(message: Message) -> None:
     logger.info(
         "Group message normalized: chat_id=%s user_id=%s message_id=%s "
         "reply_to_bot=%s mentions_bot=%s has_question=%s has_links=%s "
-        "mention_count=%s mention_targets=%s forward_chat_id=%s lang=%s text='%s'",
+        "mention_count=%s mention_targets=%s forward_chat_id=%s "
+        "reply_to_message_id=%s lang=%s text='%s'",
         incoming_message.chat_id,
         incoming_message.user_id,
         incoming_message.message_id,
@@ -75,6 +76,7 @@ async def group_message(message: Message) -> None:
         incoming_message.mention_count,
         incoming_message.mention_targets,
         incoming_message.forward_chat_id,
+        incoming_message.reply_to_message_id,
         incoming_message.user_language,
         compact_log_text(incoming_message.text, 500),
     )
@@ -198,6 +200,7 @@ def _normalize_message(message: Message) -> IncomingMessage | None:
         ),
         forward_chat_id=_get_forward_chat_id(message),
         reply_to_user_id=_get_reply_to_user_id(message),
+        reply_to_message_id=_get_reply_to_message_id(message),
         mention_targets=_extract_mention_targets(text, entities, bot_username),
         user_language=message.from_user.language_code or "ru",
     )
@@ -273,6 +276,13 @@ def _get_reply_to_user_id(message: Message) -> int | None:
     if message.reply_to_message is None or message.reply_to_message.from_user is None:
         return None
     return message.reply_to_message.from_user.id
+
+
+def _get_reply_to_message_id(message: Message) -> int | None:
+    """Извлекает message_id сообщения, на которое пришёл reply."""
+    if message.reply_to_message is None:
+        return None
+    return message.reply_to_message.message_id
 
 
 async def _delayed_answer_check(bot: Bot, chat_id: int) -> None:

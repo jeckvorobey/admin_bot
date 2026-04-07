@@ -38,10 +38,10 @@
 
 ## `app/databases/`
 
-**Назначение**: SQLite schema/init для `spam_log`, `chat_log`, `chat_members`.
+**Назначение**: SQLite schema/init для `spam_log`, `chat_log`, `chat_members`, `pending_questions`.
 
 **Ключевые файлы**:
-- `sqlite.py` — создание таблиц и connection factory.
+- `sqlite.py` — создание таблиц, connection factory и миграции (`_ensure_*_columns`).
 
 ## `app/knowledge/`
 
@@ -67,6 +67,9 @@
 **Ключевые файлы**:
 - `faq.py`, `partner.py` — lookup по Markdown trigger words.
 - `chat_log.py`, `spam_log.py`, `chat_member.py` — история чата, логи спама, активность участников.
+- `pending_question.py` — поштучный трекинг вопросов: `add`, `find_ready`,
+  `get_open_by_message_id`, `mark_answered_by_reply`, `mark_bot_answered`,
+  `exists_open_question`.
 
 ## `app/services/`
 

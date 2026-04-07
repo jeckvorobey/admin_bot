@@ -72,10 +72,32 @@ def init_db() -> None:
             """
         )
         _ensure_chat_member_columns(connection)
+        _ensure_pending_question_columns(connection)
     logger.info(
         "SQLite schema ready: tables=%s",
         ["spam_log", "chat_log", "chat_members", "pending_questions"],
     )
+
+
+def _ensure_pending_question_columns(connection: sqlite3.Connection) -> None:
+    """Добавляет audit-колонки в pending_questions (миграции для существующих БД).
+
+    answered_by_message_id — message_id reply-сообщения, закрывшего вопрос участником.
+    bot_replied_at — timestamp ответа бота; NULL означает, что бот ещё не ответил.
+    Эти два поля позволяют различать, кто именно закрыл вопрос.
+    """
+    rows = connection.execute("PRAGMA table_info(pending_questions)").fetchall()
+    existing_columns = {row["name"] for row in rows}
+    if "answered_by_message_id" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE pending_questions ADD COLUMN answered_by_message_id INTEGER"
+        )
+        logger.info("SQLite migration applied: pending_questions.answered_by_message_id")
+    if "bot_replied_at" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE pending_questions ADD COLUMN bot_replied_at TEXT"
+        )
+        logger.info("SQLite migration applied: pending_questions.bot_replied_at")
 
 
 def _ensure_chat_member_columns(connection: sqlite3.Connection) -> None:

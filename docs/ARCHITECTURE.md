@@ -70,6 +70,36 @@
 - `api/routers` — HTTP webhook.
 - `telegram/handlers` — тонкий aiogram слой без SQL.
 
+## Механизм отложенных ответов (pending questions)
+
+Когда `TriageAgent` возвращает `reply`, сервис сохраняет вопрос в таблицу
+`pending_questions` и планирует asyncio-задачу с задержкой
+`PENDING_REPLY_DELAY_SECONDS` (5 минут). По истечении задержки
+`build_and_send_pending` достаёт все вопросы старше 5 минут и генерирует
+ответы через `AnswerAgent`.
+
+### Поштучный учёт вопросов
+
+Каждый вопрос хранится как отдельная строка `pending_questions`.
+Закрытие вопроса происходит только в двух случаях:
+
+1. **Reply от участника**: входящее сообщение является reply именно на
+   `message_id` вопроса → `mark_answered_by_reply(question_id, reply_message_id)`.
+2. **Бот ответил**: `build_and_send_pending` → `mark_bot_answered(id)`.
+
+Обычное сообщение без `reply_to_message_id` **не закрывает** pending-вопросы
+других участников — это позволяет боту ответить на вопрос A, даже если
+на вопрос B уже ответил живой участник.
+
+### Поля таблицы `pending_questions`
+
+| Поле | Назначение |
+|---|---|
+| `message_id` | id исходного вопроса (для reply) |
+| `status` | `pending` / `answered` |
+| `answered_at` | когда вопрос был закрыт |
+| `answered_by_message_id` | id reply-сообщения, закрывшего вопрос |
+
 ## База данных
 
 SQLite таблицы создаются в `app/databases/sqlite.py`. FAQ/partners данные
@@ -81,9 +111,17 @@ SQLite таблицы создаются в `app/databases/sqlite.py`. FAQ/partn
 - `spam_log`
 - `chat_log`
 - `chat_members`
+- `pending_questions`
 
-`chat_members` также хранит `abuse_warning_count` и `muted_until_at` для
+`chat_members` хранит `abuse_warning_count` и `muted_until_at` для
 предупреждений и временных ограничений.
+
+`pending_questions` хранит каждый вопрос отдельно с поштучным трекингом
+статуса (открыт / закрыт участником / закрыт ботом).
+
+Устаревшие схемы обновляются при старте через `_ensure_*_columns`:
+`PRAGMA table_info(table)` проверяет существующие колонки, и только при
+их отсутствии выполняется `ALTER TABLE ... ADD COLUMN`.
 
 ## Правила проекта
 

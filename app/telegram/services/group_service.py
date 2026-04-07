@@ -57,19 +57,24 @@ class GroupService:
             compact_log_text(message.text, 500),
         )
 
-        # Любое живое сообщение от другого пользователя = кто-то ответил → снимаем pending
-        answered = self._pending_question_repository.mark_answered(
-            message.chat_id,
-            except_user_id=message.user_id,
-        )
-        if answered:
-            logger.info(
-                "GroupService pending questions answered by human activity: "
-                "chat_id=%s count=%s user_id=%s",
-                message.chat_id,
-                answered,
-                message.user_id,
+        # Reply-based закрытие: если это ответ на конкретный pending-вопрос —
+        # закрываем только этот вопрос, не весь чат разом.
+        if message.reply_to_message_id is not None:
+            open_question = self._pending_question_repository.get_open_by_message_id(
+                message.chat_id, message.reply_to_message_id
             )
+            if open_question is not None and open_question["user_id"] != message.user_id:
+                self._pending_question_repository.mark_answered_by_reply(
+                    question_id=open_question["id"],
+                    answered_by_message_id=message.message_id,
+                )
+                logger.info(
+                    "GroupService pending question closed by reply: "
+                    "chat_id=%s question_message_id=%s reply_message_id=%s",
+                    message.chat_id,
+                    message.reply_to_message_id,
+                    message.message_id,
+                )
 
         spam_reason = await self._spam_service.detect_spam(message)
         if spam_reason is not None:
@@ -108,8 +113,7 @@ class GroupService:
 
         decision = await self._message_orchestrator.classify_message(message)
         logger.info(
-            "GroupService triage decision=%s reason='%s' chat_id=%s user_id=%s "
-            "message_id=%s",
+            "GroupService triage decision=%s reason='%s' chat_id=%s user_id=%s message_id=%s",
             decision.action,
             compact_log_text(decision.reason, 400),
             message.chat_id,

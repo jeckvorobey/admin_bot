@@ -20,6 +20,7 @@ class IncomingMessage:
     mention_count: int = 0
     forward_chat_id: int | None = None
     reply_to_user_id: int | None = None
+    reply_to_message_id: int | None = None
     mention_targets: tuple[str, ...] = ()
     user_language: str = "ru"
 
@@ -38,6 +39,7 @@ class IncomingMessage:
         mention_count: int = 0,
         forward_chat_id: int | None = None,
         reply_to_user_id: int | None = None,
+        reply_to_message_id: int | None = None,
         mention_targets: tuple[str, ...] = (),
         user_language: str = "ru",
     ) -> "IncomingMessage":
@@ -55,6 +57,7 @@ class IncomingMessage:
             mention_count=mention_count,
             forward_chat_id=forward_chat_id,
             reply_to_user_id=reply_to_user_id,
+            reply_to_message_id=reply_to_message_id,
             mention_targets=mention_targets,
             user_language=user_language,
         )
